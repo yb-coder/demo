@@ -111,7 +111,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: [build, test, run-ui-tests]
-    if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v3
       - name: Docker Build & Push Action
