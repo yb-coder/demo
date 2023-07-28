@@ -1,0 +1,218 @@
+name: Android CI
+
+on:
+  push:
+    branches: [ "pr/YashBhaleRSL/Ci_Cd_main_branch" ]
+    
+  pull_request:
+    branches: [ "pr/YashBhaleRSL/Ci_Cd_main_branch" ]
+
+jobs:
+  # Builds the app on multiple platforms
+  build:
+    runs-on: ${{matrix.os}}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macOS-latest]
+    steps:
+    - uses: actions/checkout@v3
+    - name: set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+    - name: Build with Gradle
+      run: ./gradlew build
+    - name: Build the project and generate apk
+      run: ./gradlew assembleDebug
+    - name: Upload APK
+      uses: actions/upload-artifact@v3.1.2
+      with:
+        name: APK
+        path: app/build/outputs/apk/debug/**.apk
+
+  # runs the lintchecks, unit tests and instrumentation tests and upload the reports
+  test:
+    runs-on: ${{matrix.os}}
+    strategy:
+      matrix:
+        os: [macOS-latest]
+    steps:
+      - uses: actions/checkout@v3
+      - name: set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+      - name: Run Linter and Test
+        run: ./gradlew check
+      - name: Run Ktlint
+        run: ./gradlew ktlintCheck --continue
+      - name: Run UI test
+        uses: ReactiveCircus/android-emulator-runner@v2.28.0
+        with:
+          api-level: 29
+          script: ./gradlew connectedDebugAndroidTest
+      - name: Upload Reports
+        uses: actions/upload-artifact@v3.1.2
+        with:
+          name: Test-Reports
+          path: app/build/reports
+        if: always()
+          
+  # Deploy docker image with increased bug version as a tag to docker hub
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Bump release version
+        id: bump_version
+        uses: christian-draeger/increment-semantic-version@1.1.0
+        with:
+          current-version: '4.12.4-alpha.3' 
+          version-fragment: 'bug'
+      - name: Docker Build & Push Action
+        uses: mr-smithers-excellent/docker-build-push@v6.2
+        with:
+          image: yashbhalersl/ci-cd-demo-image-1
+          tags: ${{ steps.bump_version.outputs.next-version }}
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+  
+  #Generates coverage report and upload the docker image with the next major version on the docker hub.
+  coverage:
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    steps:
+      - uses: actions/checkout@v3
+      - name: set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+      - name: Build with Gradle
+        run: ./gradlew build
+      - name: Run tests
+        run: ./gradlew test
+      - name: Run Test Coverage
+        run: ./gradlew testDebugUnitTestCoverageVerification
+      - name: Generate JaCoCo Badge
+        uses: cicirello/jacoco-badge-generator@v2
+        with:
+          generate-branches-badge: true
+          jacoco-csv-file: "**/testDebugUnitTestCoverage.csv"
+      - name: upload coverage report
+        uses: actions/upload-artifact@v3.1.2
+        with:
+          name: coverage report
+          path: app/build/reports/jacoco/testDebugUnitTestCoverage/html
+      - name: Bump release version
+        id: bump_version
+        uses: christian-draeger/increment-semantic-version@1.1.0
+        with:
+          current-version: '3.12.4-alpha.3' 
+          version-fragment: 'major'
+      - name: Upload docker image with the bumped version
+        uses: mr-smithers-excellent/docker-build-push@v6.2
+        with:
+          image: yashbhalersl/ci-cd-demo-image-1
+          tags: ${{ steps.bump_version.outputs.next-version }}
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          
+  # Checkout to the parent branch genarates the apk for the branch 
+  # Checkout to the child branch genarates the apk for the branch 
+  # Genarates the apk-diff report and upload it on artifacts 
+  # and upload the docker image with the next minor version on the docker hub
+  apk-diff-with-minor-version-release:
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: pr/YashBhaleRSL/Ci_Cd_main_branch
+      - name: set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+      - name: Build Master APK
+        run: ./gradlew assembleDebug && mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-master.apk
+      - name: Upload APK
+        uses: actions/upload-artifact@v3.1.2
+        with:
+          name: apk_master
+          path: app/build/outputs/apk/debug/app-master.apk
+      - uses: actions/checkout@v3
+        with:
+          ref: pr/YashBhaleRSL/CiCdPipeline
+      - name: set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+      - name: Build PR APK
+        run: ./gradlew assembleDebug && mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-pr.apk
+      - name: Upload APK
+        uses: actions/upload-artifact@v3.1.2
+        with:
+          name: apk_pr
+          path: app/build/outputs/apk/debug/app-pr.apk
+      # As we are using ubuntu latests need to install brew explicitly  
+      # so that the next "Install diffuse" job will not fail.
+      - name: Install Homebrew
+        env:
+          ACTIONS_ALLOW_UNSECURE_COMMANDS: 'true'
+        run: |
+          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
+          test -d ~/.linuxbrew && eval $(~/.linuxbrew/bin/brew shellenv)
+          test -d /home/linuxbrew/.linuxbrew && eval $(/home/linuxbrew/.linuxbrew/bin/brew shellenv)
+          echo "eval \$($(brew --prefix)/bin/brew shellenv)" >>~/.profile
+          echo "::add-path::/home/linuxbrew/.linuxbrew/bin"
+          brew --version
+      - name: Install diffuse
+        run: brew install JakeWharton/repo/diffuse
+      - name: download artifact
+        uses: actions/download-artifact@v2.1.1
+        with:
+          name: apk_master
+          path: app/build/outputs/apk/debug/app-master
+      - name: download artifact
+        uses: actions/download-artifact@v2.1.1
+        with:
+          name: apk_pr
+          path: app/build/outputs/apk/debug/app-pr
+      - name: run differ
+        run: diffuse diff app/build/outputs/apk/debug/app-master/app-master.apk app/build/outputs/apk/debug/app-pr/app-pr.apk
+      - name: Bump release version
+        id: bump_version
+        uses: christian-draeger/increment-semantic-version@1.1.0
+        with:
+          current-version: '3.12.4-alpha.3' 
+          version-fragment: 'feature'
+      - name: Upload docker image with the bumped version
+        uses: mr-smithers-excellent/docker-build-push@v6.2
+        with:
+          image: yashbhalersl/ci-cd-demo-image-1
+          tags: ${{ steps.bump_version.outputs.next-version }}
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
