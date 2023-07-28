@@ -66,7 +66,7 @@ jobs:
           path: app/build/reports
         if: always()
           
-  # Deploy docker image to docker hub
+  # Deploy docker image with increased bug version as a tag to docker hub
   deploy:
     runs-on: ubuntu-latest
     needs: [build, test]
@@ -87,7 +87,7 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
   
-  #Generates coverage report 
+  #Generates coverage report and upload the docker image with the next major version on the docker hub.
   coverage:
     runs-on: ubuntu-latest
     needs: [build, test]
@@ -132,7 +132,10 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
           
-  #Checkout application main branch and build the APK
+  # Checkout to the parent branch genarates the apk for the branch 
+  # Checkout to the child branch genarates the apk for the branch 
+  # Genarates the apk-diff report and upload it on artifacts 
+  # and upload the docker image with the next minor version on the docker hub
   apk-diff-with-minor-version-release:
     runs-on: ubuntu-latest
     needs: [build, test]
@@ -173,6 +176,8 @@ jobs:
         with:
           name: apk_pr
           path: app/build/outputs/apk/debug/app-pr.apk
+      # As we are using ubuntu latests need to install brew explicitly  
+      # so that the next "Install diffuse" job will not fail.
       - name: Install Homebrew
         env:
           ACTIONS_ALLOW_UNSECURE_COMMANDS: 'true'
