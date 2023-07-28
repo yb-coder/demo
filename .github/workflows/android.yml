@@ -134,7 +134,7 @@ jobs:
           
   #Checkout application main branch and build the APK
   apk-diff-with-minor-version-release:
-    runs-on: macOs-latest
+    runs-on: ubuntu-latest
     needs: [build, test]
     steps:
       - uses: actions/checkout@v3
